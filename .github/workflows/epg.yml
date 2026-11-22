@@ -38,7 +38,7 @@ jobs:
       - name: Build channel list
         run: |
           mkdir -p out
-          node scripts/make-channels.mjs out/channels.xml
+          node scripts/epg.mjs init out/state.json out/pass1.xml
 
       - name: Fetch iptv-org/epg
         run: |
@@ -46,24 +46,35 @@ jobs:
           cd epg
           npm install --no-audit --no-fund
 
-      - name: Grab guide
-        working-directory: epg
+      - name: Grab guide (with fallback sources)
         run: |
-          npm run grab --- \
-            --channels="$GITHUB_WORKSPACE/out/channels.xml" \
-            --output="$GITHUB_WORKSPACE/out/guide.xml" \
-            --days="$DAYS" \
-            --maxConnections=10 \
-            --timeout=20000 \
-            --gzip
+          inputs=()
+          for pass in 1 2 3 4; do
+            if ! grep -q '<channel ' "out/pass$pass.xml"; then
+              echo "No channels left for pass $pass"
+              break
+            fi
+            echo "::group::pass $pass"
+            (cd epg && npm run grab --- \
+              --channels="$GITHUB_WORKSPACE/out/pass$pass.xml" \
+              --output="$GITHUB_WORKSPACE/out/guide$pass.xml" \
+              --days="$DAYS" \
+              --maxConnections=10 \
+              --timeout=20000) || echo "::warning::grab pass $pass exited with an error"
+            echo "::endgroup::"
+            inputs+=("out/guide$pass.xml")
+            node scripts/epg.mjs next out/state.json "out/guide$pass.xml" "out/pass$((pass + 1)).xml" "pass $((pass + 1))"
+          done
+          node scripts/epg.mjs merge out/guide.xml "${inputs[@]}"
+          gzip -9 -k -f out/guide.xml
 
       - name: Check output
         run: |
           ls -la out
-          test -s out/guide.xml.gz
-          echo "channels in guide: $(zcat out/guide.xml.gz | grep -c '<channel ')"
-          echo "programmes in guide: $(zcat out/guide.xml.gz | grep -c '<programme ')"
-          test "$(zcat out/guide.xml.gz | grep -c '<programme ')" -gt 0
+          channels=$(grep -c '<channel ' out/guide.xml || true)
+          programmes=$(grep -c '<programme ' out/guide.xml || true)
+          echo "channels with programmes: $channels, programmes: $programmes" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$programmes" -gt 0
 
       - name: Publish to release "epg"
         env:
@@ -72,5 +83,6 @@ jobs:
           if ! gh release view epg >/dev/null 2>&1; then
             gh release create epg --title "EPG" --notes "Daily XMLTV guide. Download: https://github.com/${GITHUB_REPOSITORY}/releases/download/epg/guide.xml.gz" --latest
           fi
+          cp out/pass1.xml out/channels.xml
           gh release upload epg out/guide.xml.gz out/channels.xml --clobber
           gh release edit epg --notes "Daily XMLTV guide (countries: ${COUNTRIES}, days: ${DAYS}). Updated $(date -u +%Y-%m-%dT%H:%MZ). Download: https://github.com/${GITHUB_REPOSITORY}/releases/download/epg/guide.xml.gz"
