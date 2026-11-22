@@ -1,0 +1,76 @@
+name: Update EPG
+
+on:
+  schedule:
+    - cron: "17 18 * * *"
+  workflow_dispatch:
+    inputs:
+      countries:
+        description: "Comma-separated country codes"
+        required: false
+        default: "jp,us,uk,kr"
+      days:
+        description: "Days to grab"
+        required: false
+        default: "2"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: epg
+  cancel-in-progress: false
+
+jobs:
+  grab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      COUNTRIES: ${{ inputs.countries || 'jp,us,uk,kr' }}
+      DAYS: ${{ inputs.days || '2' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build channel list
+        run: |
+          mkdir -p out
+          node scripts/make-channels.mjs out/channels.xml
+
+      - name: Fetch iptv-org/epg
+        run: |
+          git clone --depth 1 -b master https://github.com/iptv-org/epg.git epg
+          cd epg
+          npm install --no-audit --no-fund
+
+      - name: Grab guide
+        working-directory: epg
+        run: |
+          npm run grab --- \
+            --channels="$GITHUB_WORKSPACE/out/channels.xml" \
+            --output="$GITHUB_WORKSPACE/out/guide.xml" \
+            --days="$DAYS" \
+            --maxConnections=10 \
+            --timeout=20000 \
+            --gzip
+
+      - name: Check output
+        run: |
+          ls -la out
+          test -s out/guide.xml.gz
+          echo "channels in guide: $(zcat out/guide.xml.gz | grep -c '<channel ')"
+          echo "programmes in guide: $(zcat out/guide.xml.gz | grep -c '<programme ')"
+          test "$(zcat out/guide.xml.gz | grep -c '<programme ')" -gt 0
+
+      - name: Publish to release "epg"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view epg >/dev/null 2>&1; then
+            gh release create epg --title "EPG" --notes "Daily XMLTV guide. Download: https://github.com/${GITHUB_REPOSITORY}/releases/download/epg/guide.xml.gz" --latest
+          fi
+          gh release upload epg out/guide.xml.gz out/channels.xml --clobber
+          gh release edit epg --notes "Daily XMLTV guide (countries: ${COUNTRIES}, days: ${DAYS}). Updated $(date -u +%Y-%m-%dT%H:%MZ). Download: https://github.com/${GITHUB_REPOSITORY}/releases/download/epg/guide.xml.gz"
