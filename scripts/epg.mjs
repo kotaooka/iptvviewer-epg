@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 
 const PLAYLIST = process.env.PLAYLIST || 'https://iptv-org.github.io/iptv/index.m3u'
 const GUIDES = process.env.GUIDES || 'https://iptv-org.github.io/api/guides.json'
-const COUNTRIES = (process.env.COUNTRIES || 'jp,us,uk,kr').toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
+const COUNTRIES = (process.env.COUNTRIES || 'jp,us,uk,kr,cn,hk').toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
 
 async function load(src) {
   if (/^https?:\/\//.test(src)) {
