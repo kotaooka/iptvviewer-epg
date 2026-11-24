@@ -8,7 +8,7 @@ on:
       countries:
         description: "Comma-separated country codes"
         required: false
-        default: "jp,us,uk,kr,cn,hk"
+        default: "jp,us,uk,kr,cn,hk,at,au,fr,ch,il"
       days:
         description: "Days to grab"
         required: false
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
-      COUNTRIES: ${{ inputs.countries || 'jp,us,uk,kr,cn,hk' }}
+      COUNTRIES: ${{ inputs.countries || 'jp,us,uk,kr,cn,hk,at,au,fr,ch,il' }}
       DAYS: ${{ inputs.days || '2' }}
     steps:
       - uses: actions/checkout@v4
